@@ -27,10 +27,18 @@ export default function FilterPage({ allEvents, onLoad, onBack }: Props) {
     return Array.from(set).sort();
   }, [allEvents]);
 
+  // Default date range = full span of the loaded dataset
+  const datasetDates = useMemo(() => {
+    const dates = allEvents.map((e) => e.event_date).filter(Boolean).sort();
+    return dates.length > 0
+      ? { start: dates[0], end: dates[dates.length - 1] }
+      : getPresetDates('1yr');
+  }, [allEvents]);
+
   const [countries, setCountries] = useState<string[]>([...availableCountries]);
   const [countrySearch, setCountrySearch] = useState('');
-  const [startDate, setStartDate] = useState(() => getPresetDates('1yr').start);
-  const [endDate, setEndDate] = useState(() => getPresetDates('1yr').end);
+  const [startDate, setStartDate] = useState(() => datasetDates.start);
+  const [endDate, setEndDate] = useState(() => datasetDates.end);
   const [eventTypes, setEventTypes] = useState<string[]>([...EVENT_TYPES]);
   const [minInteractions, setMinInteractions] = useState(2);
   const [maxActors, setMaxActors] = useState(100);
