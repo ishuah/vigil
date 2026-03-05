@@ -1,13 +1,13 @@
 import { useState, useCallback, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import type { FilterState, ACLEDEvent, Actor } from './types';
-import ConnectPage from './components/ConnectPage';
+import UploadPage from './components/UploadPage';
 import FilterPage from './components/FilterPage';
 import ActorGraph from './components/ActorGraph';
 import ActorDetailPanel from './components/ActorDetailPanel';
 import MiniMap from './components/MiniMap';
 
-type Step = 'connect' | 'filter' | 'graph';
+type Step = 'upload' | 'filter' | 'graph';
 
 const DEFAULT_FILTER: FilterState = {
   countries: [],
@@ -19,27 +19,25 @@ const DEFAULT_FILTER: FilterState = {
 };
 
 export default function App() {
-  const [step, setStep] = useState<Step>('connect');
-
+  const [step, setStep] = useState<Step>('upload');
+  const [allEvents, setAllEvents] = useState<ACLEDEvent[]>([]);
   const [events, setEvents] = useState<ACLEDEvent[]>([]);
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
   const [selectedActor, setSelectedActor] = useState<Actor | null>(null);
   const [showMiniMap, setShowMiniMap] = useState(false);
   const graphContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleConnect = useCallback(() => {
+  const handleUpload = useCallback((uploaded: ACLEDEvent[]) => {
+    setAllEvents(uploaded);
     setStep('filter');
   }, []);
 
-  const handleLoad = useCallback(
-    (loadedEvents: ACLEDEvent[], loadedFilter: FilterState) => {
-      setEvents(loadedEvents);
-      setFilter(loadedFilter);
-      setSelectedActor(null);
-      setStep('graph');
-    },
-    [],
-  );
+  const handleLoad = useCallback((loadedEvents: ACLEDEvent[], loadedFilter: FilterState) => {
+    setEvents(loadedEvents);
+    setFilter(loadedFilter);
+    setSelectedActor(null);
+    setStep('graph');
+  }, []);
 
   const handleBackToFilter = useCallback(() => {
     setStep('filter');
@@ -65,20 +63,18 @@ export default function App() {
   }, []);
 
   const miniMapEvents = selectedActor
-    ? events.filter(
-        (e) =>
-          e.actor1 === selectedActor.name || e.actor2 === selectedActor.name,
-      )
+    ? events.filter((e) => e.actor1 === selectedActor.name || e.actor2 === selectedActor.name)
     : [];
 
   return (
     <div className="min-h-screen bg-gray-900 text-white" style={{ fontFamily: 'system-ui, sans-serif' }}>
-      {step === 'connect' && <ConnectPage onConnect={handleConnect} />}
+      {step === 'upload' && <UploadPage onUpload={handleUpload} />}
 
       {step === 'filter' && (
         <FilterPage
+          allEvents={allEvents}
           onLoad={handleLoad}
-          onBack={() => setStep('connect')}
+          onBack={() => setStep('upload')}
         />
       )}
 
@@ -93,7 +89,11 @@ export default function App() {
               <span className="text-gray-600 text-sm">·</span>
               <span className="text-gray-400 text-sm">
                 {events.length.toLocaleString()} events
-                {filter.countries.length > 0 && ` · ${filter.countries.join(', ')}`}
+                {filter.countries.length > 0 && filter.countries.length <= 3
+                  ? ` · ${filter.countries.join(', ')}`
+                  : filter.countries.length > 3
+                  ? ` · ${filter.countries.length} countries`
+                  : ''}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -101,7 +101,13 @@ export default function App() {
                 onClick={handleBackToFilter}
                 className="text-xs text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 transition-colors"
               >
-                ← New filter
+                ← Refilter
+              </button>
+              <button
+                onClick={() => setStep('upload')}
+                className="text-xs text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                ↑ New file
               </button>
               <button
                 onClick={handleExportPNG}
