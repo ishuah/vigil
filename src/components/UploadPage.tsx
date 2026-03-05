@@ -2,6 +2,14 @@ import { useState, useCallback } from 'react';
 import type { ACLEDEvent } from '../types';
 import { parseACLEDCSV } from '../api/csv';
 
+async function loadSampleData(): Promise<ACLEDEvent[]> {
+  const base = import.meta.env.BASE_URL ?? '/';
+  const res = await fetch(`${base}sample-data.csv`);
+  if (!res.ok) throw new Error('Could not load sample data');
+  const text = await res.text();
+  return parseACLEDCSV(text);
+}
+
 interface Props {
   onUpload: (events: ACLEDEvent[]) => void;
 }
@@ -10,6 +18,18 @@ export default function UploadPage({ onUpload }: Props) {
   const [status, setStatus] = useState<'idle' | 'parsing' | 'error'>('idle');
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+
+  const handleLoadSample = useCallback(async () => {
+    setStatus('parsing');
+    setError('');
+    try {
+      const events = await loadSampleData();
+      onUpload(events);
+    } catch (e) {
+      setStatus('error');
+      setError(e instanceof Error ? e.message : 'Failed to load sample data');
+    }
+  }, [onUpload]);
 
   const processFile = useCallback(
     async (file: File) => {
@@ -114,6 +134,25 @@ export default function UploadPage({ onUpload }: Props) {
               ✗ {error}
             </div>
           )}
+        </div>
+
+        {/* Sample data */}
+        <div className="mt-4 bg-gray-800/50 rounded-xl border border-blue-900/50 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-300">Try with sample data</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                1,200 events · East Africa + Sudan + DRC · 2023–2024
+              </p>
+            </div>
+            <button
+              onClick={handleLoadSample}
+              disabled={status === 'parsing'}
+              className="shrink-0 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg px-4 py-2 transition-colors"
+            >
+              Load sample →
+            </button>
+          </div>
         </div>
 
         {/* How to export instructions */}
