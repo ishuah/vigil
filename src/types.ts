@@ -1,6 +1,12 @@
 export interface Credentials {
   email: string;
-  apiKey: string;
+  apiKey: string; // kept for backward compat, unused in OAuth flow
+}
+
+export interface OAuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number; // unix ms
 }
 
 export interface ACLEDEvent {

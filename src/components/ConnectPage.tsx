@@ -1,52 +1,74 @@
 import { useState, useEffect } from 'react';
-import type { Credentials } from '../types';
-import { testConnection } from '../api/acled';
+import { login, loadTokens, isTokenExpired, testConnection } from '../api/acled';
+import type { OAuthTokens } from '../types';
 
 interface Props {
-  onConnect: (creds: Credentials) => void;
+  onConnect: () => void;
+}
+
+function tokenExpiryLabel(tokens: OAuthTokens): string {
+  const ms = tokens.expiresAt - Date.now();
+  if (ms <= 0) return 'expired';
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return h > 0 ? `${h}h ${m}m remaining` : `${m}m remaining`;
 }
 
 export default function ConnectPage({ onConnect }: Props) {
   const [email, setEmail] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [status, setStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [password, setPassword] = useState('');
+  const [status, setStatus] = useState<'idle' | 'logging-in' | 'verifying' | 'ok' | 'error'>('idle');
   const [message, setMessage] = useState('');
+  const [savedTokens, setSavedTokens] = useState<OAuthTokens | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('vigil_credentials');
-    if (saved) {
-      try {
-        const creds: Credentials = JSON.parse(saved);
-        setEmail(creds.email);
-        setApiKey(creds.apiKey);
-      } catch {
-        // ignore
-      }
-    }
+    const tokens = loadTokens();
+    if (tokens) setSavedTokens(tokens);
   }, []);
 
-  const handleTest = async () => {
-    if (!email || !apiKey) {
+  const handleLogin = async () => {
+    if (!email || !password) {
       setStatus('error');
-      setMessage('Both email and API key are required.');
+      setMessage('Email and password are required.');
       return;
     }
-    setStatus('testing');
+    setStatus('logging-in');
     setMessage('');
-    const result = await testConnection({ email, apiKey });
-    if (result.ok) {
-      setStatus('ok');
-      setMessage(result.message);
-      localStorage.setItem('vigil_credentials', JSON.stringify({ email, apiKey }));
-    } else {
+    try {
+      await login(email, password);
+      setStatus('verifying');
+      setMessage('');
+      const result = await testConnection();
+      if (result.ok) {
+        setStatus('ok');
+        setMessage('Authenticated successfully.');
+        setSavedTokens(loadTokens());
+      } else {
+        setStatus('error');
+        setMessage(result.message);
+      }
+    } catch (e) {
       setStatus('error');
-      setMessage(result.message);
+      setMessage(e instanceof Error ? e.message : 'Login failed');
     }
   };
 
-  const handleProceed = () => {
-    onConnect({ email, apiKey });
+  const handleUseSaved = async () => {
+    setStatus('verifying');
+    setMessage('');
+    const result = await testConnection();
+    if (result.ok) {
+      onConnect();
+    } else {
+      setStatus('error');
+      setMessage('Saved session expired. Please log in again.');
+      setSavedTokens(null);
+    }
   };
+
+  const handleProceed = () => onConnect();
+
+  const isLoading = status === 'logging-in' || status === 'verifying';
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
@@ -61,13 +83,42 @@ export default function ConnectPage({ onConnect }: Props) {
           </p>
         </div>
 
-        {/* Card */}
+        {/* Saved session banner */}
+        {savedTokens && !isTokenExpired(savedTokens) && status === 'idle' && (
+          <div className="bg-gray-800 rounded-xl border border-gray-700 p-5 shadow-xl mb-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">Session active</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {tokenExpiryLabel(savedTokens)}
+                </p>
+              </div>
+              <button
+                onClick={handleUseSaved}
+                className="shrink-0 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg px-4 py-1.5 text-sm transition-colors"
+              >
+                Continue →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Login card */}
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-8 shadow-xl">
-          <h2 className="text-lg font-semibold text-white mb-1">Connect to ACLED</h2>
+          <h2 className="text-lg font-semibold text-white mb-1">
+            {savedTokens && !isTokenExpired(savedTokens) ? 'Log in again' : 'Log in to ACLED'}
+          </h2>
           <p className="text-gray-400 text-sm mb-6">
-            Enter your ACLED credentials. Get a free API key at{' '}
-            <span className="text-blue-400">acleddata.com</span>.
-            Credentials are stored locally and never sent to any server except ACLED.
+            Uses your{' '}
+            <a
+              href="https://acleddata.com/register"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
+              myACLED
+            </a>{' '}
+            credentials. Token stored locally — never sent to any third party.
           </p>
 
           <div className="space-y-4">
@@ -79,21 +130,25 @@ export default function ConnectPage({ onConnect }: Props) {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                 placeholder="you@example.com"
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                disabled={isLoading}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm disabled:opacity-50"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
-                API Key
+                Password
               </label>
               <input
                 type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Your ACLED API key"
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                placeholder="Your myACLED password"
+                disabled={isLoading}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm disabled:opacity-50"
               />
             </div>
 
@@ -112,11 +167,15 @@ export default function ConnectPage({ onConnect }: Props) {
             )}
 
             <button
-              onClick={handleTest}
-              disabled={status === 'testing'}
+              onClick={handleLogin}
+              disabled={isLoading}
               className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-lg px-4 py-2 text-sm transition-colors"
             >
-              {status === 'testing' ? 'Testing connection…' : 'Test Connection'}
+              {status === 'logging-in'
+                ? 'Authenticating…'
+                : status === 'verifying'
+                ? 'Verifying connection…'
+                : 'Log in'}
             </button>
 
             {status === 'ok' && (
@@ -130,9 +189,16 @@ export default function ConnectPage({ onConnect }: Props) {
           </div>
         </div>
 
-        {/* Legend */}
         <div className="mt-6 text-center text-gray-600 text-xs">
-          Open source · Client-side only · Data from ACLED
+          Open source · Client-side only · Data from{' '}
+          <a
+            href="https://acleddata.com"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-gray-500"
+          >
+            ACLED
+          </a>
         </div>
       </div>
     </div>

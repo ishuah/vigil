@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import type { Credentials, FilterState, ACLEDEvent } from '../types';
+import type { FilterState, ACLEDEvent } from '../types';
 import { fetchEvents } from '../api/acled';
 import { EVENT_TYPES } from '../utils/graphData';
 
@@ -46,12 +46,12 @@ function getPresetDates(preset: string): { start: string; end: string } {
 }
 
 interface Props {
-  credentials: Credentials;
+
   onLoad: (events: ACLEDEvent[], filter: FilterState) => void;
   onBack: () => void;
 }
 
-export default function FilterPage({ credentials, onLoad, onBack }: Props) {
+export default function FilterPage({ onLoad, onBack }: Props) {
   const [countries, setCountries] = useState<string[]>([]);
   const [countrySearch, setCountrySearch] = useState('');
   const [startDate, setStartDate] = useState(() => getPresetDates('1yr').start);
@@ -109,7 +109,7 @@ export default function FilterPage({ credentials, onLoad, onBack }: Props) {
         minInteractions,
         maxActors,
       };
-      const events = await fetchEvents(credentials, filter, (loaded, total) => {
+      const events = await fetchEvents(filter, (loaded, total) => {
         setProgress({ loaded, total });
       });
       const actorSet = new Set<string>();

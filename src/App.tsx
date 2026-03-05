@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import html2canvas from 'html2canvas';
-import type { Credentials, FilterState, ACLEDEvent, Actor } from './types';
+import type { FilterState, ACLEDEvent, Actor } from './types';
 import ConnectPage from './components/ConnectPage';
 import FilterPage from './components/FilterPage';
 import ActorGraph from './components/ActorGraph';
@@ -20,15 +20,14 @@ const DEFAULT_FILTER: FilterState = {
 
 export default function App() {
   const [step, setStep] = useState<Step>('connect');
-  const [credentials, setCredentials] = useState<Credentials | null>(null);
+
   const [events, setEvents] = useState<ACLEDEvent[]>([]);
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
   const [selectedActor, setSelectedActor] = useState<Actor | null>(null);
   const [showMiniMap, setShowMiniMap] = useState(false);
   const graphContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleConnect = useCallback((creds: Credentials) => {
-    setCredentials(creds);
+  const handleConnect = useCallback(() => {
     setStep('filter');
   }, []);
 
@@ -76,9 +75,8 @@ export default function App() {
     <div className="min-h-screen bg-gray-900 text-white" style={{ fontFamily: 'system-ui, sans-serif' }}>
       {step === 'connect' && <ConnectPage onConnect={handleConnect} />}
 
-      {step === 'filter' && credentials && (
+      {step === 'filter' && (
         <FilterPage
-          credentials={credentials}
           onLoad={handleLoad}
           onBack={() => setStep('connect')}
         />
