@@ -277,7 +277,7 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
       const world = worldData as any;
       const countries = topojson.feature(world, world.objects.countries) as unknown as GeoJSON.FeatureCollection;
 
-      // Bounding box from ALL event coordinates (not just centroids) for accurate zoom
+      // Collect all valid event coordinates
       const allCoords: [number, number][] = events
         .map((e) => [parseFloat(e.longitude), parseFloat(e.latitude)] as [number, number])
         .filter(([lng, lat]) => !isNaN(lng) && !isNaN(lat) && lat !== 0 && lng !== 0);
@@ -285,26 +285,14 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
       let projection: d3.GeoProjection;
 
       if (allCoords.length >= 2) {
-        const lngs = allCoords.map(([lng]) => lng);
-        const lats = allCoords.map(([, lat]) => lat);
-        const pad = 3; // tight padding — zoom in on the conflict region
-        // Correct bbox: bottom-left, bottom-right, top-right, top-left, close
-        const bboxFeature: GeoJSON.Feature = {
+        // Use MultiPoint — D3's fitExtent handles this correctly and reliably
+        const multiPoint: GeoJSON.Feature<GeoJSON.MultiPoint> = {
           type: 'Feature',
           properties: {},
-          geometry: {
-            type: 'Polygon',
-            coordinates: [[
-              [Math.min(...lngs) - pad, Math.min(...lats) - pad],
-              [Math.max(...lngs) + pad, Math.min(...lats) - pad],
-              [Math.max(...lngs) + pad, Math.max(...lats) + pad],
-              [Math.min(...lngs) - pad, Math.max(...lats) + pad],
-              [Math.min(...lngs) - pad, Math.min(...lats) - pad],
-            ]],
-          },
+          geometry: { type: 'MultiPoint', coordinates: allCoords },
         };
         projection = d3.geoMercator()
-          .fitExtent([[40, 40], [width - 40, height - 40]], bboxFeature);
+          .fitExtent([[60, 60], [width - 60, height - 60]], multiPoint);
       } else {
         projection = d3.geoMercator().scale(130).translate([width / 2, height / 2]);
       }
