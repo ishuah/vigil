@@ -245,10 +245,10 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
       const sim = projection
         ? d3.forceSimulation<SimActor, SimEdge>(simActors)
             .force('link', linkForce)
-            .force('charge', d3.forceManyBody<SimActor>().strength(-20))
-            .force('x', d3.forceX<SimActor>((d) => d.geoX ?? width / 2).strength(0.85))
-            .force('y', d3.forceY<SimActor>((d) => d.geoY ?? height / 2).strength(0.85))
-            .force('collide', d3.forceCollide<SimActor>((d) => NODE_RADIUS(d) + 5))
+            .force('charge', d3.forceManyBody<SimActor>().strength(-10))
+            .force('x', d3.forceX<SimActor>((d) => d.geoX ?? width / 2).strength(0.95))
+            .force('y', d3.forceY<SimActor>((d) => d.geoY ?? height / 2).strength(0.95))
+            .force('collide', d3.forceCollide<SimActor>((d) => NODE_RADIUS(d) + 4))
         : d3.forceSimulation<SimActor, SimEdge>(simActors)
             .force('link', linkForce)
             .force('charge', d3.forceManyBody<SimActor>().strength(-250))
@@ -277,15 +277,18 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
       const world = worldData as any;
       const countries = topojson.feature(world, world.objects.countries) as unknown as GeoJSON.FeatureCollection;
 
-      // Compute bounding box from actor centroids
-      const centroids = actors.map(computeCentroid).filter(Boolean) as [number, number][];
+      // Bounding box from ALL event coordinates (not just centroids) for accurate zoom
+      const allCoords: [number, number][] = events
+        .map((e) => [parseFloat(e.longitude), parseFloat(e.latitude)] as [number, number])
+        .filter(([lng, lat]) => !isNaN(lng) && !isNaN(lat) && lat !== 0 && lng !== 0);
 
       let projection: d3.GeoProjection;
 
-      if (centroids.length >= 2) {
-        const lngs = centroids.map(([lng]) => lng);
-        const lats = centroids.map(([, lat]) => lat);
-        const pad = 10;
+      if (allCoords.length >= 2) {
+        const lngs = allCoords.map(([lng]) => lng);
+        const lats = allCoords.map(([, lat]) => lat);
+        const pad = 3; // tight padding — zoom in on the conflict region
+        // Correct bbox: bottom-left, bottom-right, top-right, top-left, close
         const bboxFeature: GeoJSON.Feature = {
           type: 'Feature',
           properties: {},
@@ -293,7 +296,7 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
             type: 'Polygon',
             coordinates: [[
               [Math.min(...lngs) - pad, Math.min(...lats) - pad],
-              [Math.max(...lngs) - pad, Math.min(...lats) - pad],
+              [Math.max(...lngs) + pad, Math.min(...lats) - pad],
               [Math.max(...lngs) + pad, Math.max(...lats) + pad],
               [Math.min(...lngs) - pad, Math.max(...lats) + pad],
               [Math.min(...lngs) - pad, Math.min(...lats) - pad],
@@ -308,7 +311,7 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
 
       const path = d3.geoPath().projection(projection);
 
-      // Ocean
+      // Ocean background
       g.append('rect')
         .attr('width', width).attr('height', height)
         .attr('fill', '#0d1b2a');
@@ -322,6 +325,51 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
         .attr('fill', '#1a2d40')
         .attr('stroke', '#2d4a5e')
         .attr('stroke-width', 0.5);
+
+      // ── City labels ────────────────────────────────────────────────────────
+      // Collect unique locations from events, deduplicated by name
+      const locationMap = new Map<string, { lng: number; lat: number; count: number }>();
+      for (const e of events) {
+        const name = e.location?.trim();
+        const lng = parseFloat(e.longitude);
+        const lat = parseFloat(e.latitude);
+        if (!name || isNaN(lng) || isNaN(lat) || lat === 0) continue;
+        const existing = locationMap.get(name);
+        if (existing) {
+          existing.count++;
+        } else {
+          locationMap.set(name, { lng, lat, count: 1 });
+        }
+      }
+
+      // Show top 40 most-active locations
+      const topLocations = [...locationMap.entries()]
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 40);
+
+      const cityLayer = g.append('g').attr('class', 'city-labels');
+
+      topLocations.forEach(([name, { lng, lat }]) => {
+        const projected = projection([lng, lat]);
+        if (!projected) return;
+        const [cx, cy] = projected;
+
+        // Small dot
+        cityLayer.append('circle')
+          .attr('cx', cx).attr('cy', cy)
+          .attr('r', 1.5)
+          .attr('fill', '#4a6a7a')
+          .attr('pointer-events', 'none');
+
+        // Label
+        cityLayer.append('text')
+          .attr('x', cx).attr('y', cy - 4)
+          .attr('font-size', 8)
+          .attr('fill', '#5a8090')
+          .attr('text-anchor', 'middle')
+          .attr('pointer-events', 'none')
+          .text(name);
+      });
 
       buildGraph(projection);
     } else {
