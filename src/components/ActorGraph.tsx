@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import * as topojson from 'topojson-client';
-import type { Topology, GeometryCollection } from 'topojson-specification';
 import type { ACLEDEvent, Actor, FilterState } from '../types';
+import worldData from '../data/world-110m.json';
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3';
 import {
   buildGraphData,
@@ -138,9 +138,7 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
       .style('max-width', '280px')
       .style('line-height', '1.6');
 
-    // ── Geo setup ──────────────────────────────────────────────────────────
-    const base = import.meta.env.BASE_URL ?? '/';
-
+    // ── Graph builder ───────────────────────────────────────────────────────
     const buildGraph = (projection: d3.GeoProjection | null) => {
       // Assign geo positions if we have a projection
       if (projection) {
@@ -275,91 +273,57 @@ export default function ActorGraph({ events, filter, onSelectActor, selectedActo
 
     // ── Render with or without geo base map ─────────────────────────────────
     if (geoMode) {
-      // Draw placeholder background while loading
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const world = worldData as any;
+      const countries = topojson.feature(world, world.objects.countries) as unknown as GeoJSON.FeatureCollection;
+
+      // Compute bounding box from actor centroids
+      const centroids = actors.map(computeCentroid).filter(Boolean) as [number, number][];
+
+      let projection: d3.GeoProjection;
+
+      if (centroids.length >= 2) {
+        const lngs = centroids.map(([lng]) => lng);
+        const lats = centroids.map(([, lat]) => lat);
+        const pad = 10;
+        const bboxFeature: GeoJSON.Feature = {
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'Polygon',
+            coordinates: [[
+              [Math.min(...lngs) - pad, Math.min(...lats) - pad],
+              [Math.max(...lngs) - pad, Math.min(...lats) - pad],
+              [Math.max(...lngs) + pad, Math.max(...lats) + pad],
+              [Math.min(...lngs) - pad, Math.max(...lats) + pad],
+              [Math.min(...lngs) - pad, Math.min(...lats) - pad],
+            ]],
+          },
+        };
+        projection = d3.geoMercator()
+          .fitExtent([[40, 40], [width - 40, height - 40]], bboxFeature);
+      } else {
+        projection = d3.geoMercator().scale(130).translate([width / 2, height / 2]);
+      }
+
+      const path = d3.geoPath().projection(projection);
+
+      // Ocean
       g.append('rect')
         .attr('width', width).attr('height', height)
-        .attr('fill', '#0f1923');
+        .attr('fill', '#0d1b2a');
 
-      fetch(`${base}world-110m.json`)
-        .then((r) => r.json())
-        .then((world: Topology<{ countries: GeometryCollection }>) => {
-          const countries = topojson.feature(world, world.objects.countries);
+      // Country fills
+      g.append('g').attr('class', 'countries')
+        .selectAll('path')
+        .data(countries.features)
+        .join('path')
+        .attr('d', (f) => path(f) ?? '')
+        .attr('fill', '#1a2d40')
+        .attr('stroke', '#2d4a5e')
+        .attr('stroke-width', 0.5);
 
-          // Compute bounding box of actor centroids to fit projection
-          const centroids = actors
-            .map(computeCentroid)
-            .filter(Boolean) as [number, number][];
-
-          let projection: d3.GeoProjection;
-
-          if (centroids.length >= 2) {
-            const lngs = centroids.map(([lng]) => lng);
-            const lats = centroids.map(([, lat]) => lat);
-            const pad = 8;
-            const bounds: [[number, number], [number, number]] = [
-              [Math.min(...lngs) - pad, Math.min(...lats) - pad],
-              [Math.max(...lngs) + pad, Math.max(...lats) + pad],
-            ];
-
-            // GeoJSON bounding box feature for fitExtent
-            const bboxFeature: GeoJSON.Feature = {
-              type: 'Feature',
-              properties: {},
-              geometry: {
-                type: 'Polygon',
-                coordinates: [[
-                  [bounds[0][0], bounds[0][1]],
-                  [bounds[1][0], bounds[0][1]],
-                  [bounds[1][0], bounds[1][1]],
-                  [bounds[0][0], bounds[1][1]],
-                  [bounds[0][0], bounds[0][1]],
-                ]],
-              },
-            };
-
-            projection = d3.geoMercator()
-              .fitExtent([[40, 40], [width - 40, height - 40]], bboxFeature);
-          } else {
-            projection = d3.geoMercator()
-              .scale(120)
-              .translate([width / 2, height / 2]);
-          }
-
-          const geoPath = d3.geoPath().projection(projection);
-
-          // Remove placeholder
-          g.select('rect').remove();
-
-          // Ocean background
-          g.insert('rect', ':first-child')
-            .attr('width', width).attr('height', height)
-            .attr('fill', '#0d1b2a');
-
-          // Country fills
-          g.insert('g', ':first-child').attr('class', 'countries')
-            .selectAll('path')
-            .data((countries as GeoJSON.FeatureCollection).features)
-            .join('path')
-            .attr('d', geoPath as unknown as string)
-            .attr('fill', '#1a2d40')
-            .attr('stroke', '#2d4a5e')
-            .attr('stroke-width', 0.4);
-
-          // Country borders (graticule)
-          g.insert('path', '.countries + *')
-            .datum(d3.geoGraticule()())
-            .attr('class', 'graticule')
-            .attr('d', geoPath as unknown as string)
-            .attr('fill', 'none')
-            .attr('stroke', '#162030')
-            .attr('stroke-width', 0.3);
-
-          buildGraph(projection);
-        })
-        .catch(() => {
-          // Fallback to network mode if topoJSON fails to load
-          buildGraph(null);
-        });
+      buildGraph(projection);
     } else {
       buildGraph(null);
     }
